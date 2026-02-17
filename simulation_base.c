@@ -66,16 +66,15 @@ void init_grid() {
 }
 
 void init_agents() {
-    int created = 0;
-    while (created < N_AGENTS) {
+    for (int a = 0; a < N_AGENTS; a++) {
         int x = rand() % W;
         int y = rand() % H;
-        if (grid[y][x].accessible) {
-            agents[created].x = x;
-            agents[created].y = y;
-            agents[created].energy = 100.0f;
-            created++;
-        }
+        grid[y][x].type = VILLAGE;
+        grid[y][x].resource = f_resource(VILLAGE);
+        grid[y][x].accessible = f_accessible(VILLAGE, DRY);
+        agents[a].x = x;
+        agents[a].y = y;
+        agents[a].energy = 100.0f;
     }
 }
 
