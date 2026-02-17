@@ -11,6 +11,7 @@
 #define REGEN_DRY 0.05f
 #define REGEN_WET 0.15f
 #define CONSUME_PER_AGENT 2.0f
+#define INITIAL_SEASON DRY
 
 typedef enum { DRY = 0, WET = 1 } Season;
 typedef enum { VILLAGE = 0, FISHING, GATHERING, FARMLAND, RESTRICTED } CellType;
@@ -164,7 +165,7 @@ float avg_energy() {
 }
 
 int main() {
-    current_season = DRY;
+    current_season = INITIAL_SEASON;
     init_grid();
     init_agents();
 
