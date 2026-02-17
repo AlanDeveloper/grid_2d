@@ -18,13 +18,17 @@ gcc -O0 -o simulation simulation_base.c -lm
 
 All main parameters are defined at the top of `simulation_base.c` as `#define` constants:
 
-| Parameter | Default  | Description                  |
-|-----------|----------|------------------------------|
-| W / H     | 64 / 64  | Grid dimensions              |
-| T         | 40       | Total simulation cycles      |
-| S         | 10       | Cycles per season            |
-| N_AGENTS  | 200      | Number of agents             |
-| MAX_COST  | 100      | Max synthetic load per agent |
+| Parameter         | Default  | Description                  |
+|-------------------|----------|------------------------------|
+| W / H             | 64 / 64  | Grid dimensions              |
+| T                 | 40       | Total simulation cycles      |
+| S                 | 10       | Cycles per season            |
+| N_AGENTS          | 200      | Number of agents             |
+| MAX_COST          | 100      | Max synthetic load per agent |
+| REGEN_DRY         | 0.10     | Resource regen rate (dry)    |
+| REGEN_WET         | 0.30     | Resource regen rate (wet)    |
+| CONSUME_PER_AGENT | 1.0      | Resource consumed per agent  |
+| INITIAL_SEASON    | DRY      | Starting season              |
 
 ## Project structure
 
