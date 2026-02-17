@@ -8,9 +8,9 @@
 #define S 10
 #define N_AGENTS 200
 #define MAX_COST 100
-#define REGEN_DRY 0.05f
-#define REGEN_WET 0.15f
-#define CONSUME_PER_AGENT 2.0f
+#define REGEN_DRY 0.10f
+#define REGEN_WET 0.30f
+#define CONSUME_PER_AGENT 1.0f
 #define INITIAL_SEASON DRY
 
 typedef enum { DRY = 0, WET = 1 } Season;
