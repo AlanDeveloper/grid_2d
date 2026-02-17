@@ -28,8 +28,6 @@ MAX_COST    100        Max synthetic load per agent
 
 ## Project structure
 
-This code is Part 1 of 3:
-
 - **Part 1** — sequential base: grid, agents, seasons, main loop
 - **Part 2** — MPI: domain partitioning, halo exchange, agent migration between processes
 - **Part 3** — OpenMP: intra-node parallelism, performance metrics
