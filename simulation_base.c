@@ -69,16 +69,36 @@ void init_local_grid() {
     }
 }
 
-void init_agents() {
+void init_local_agents() {
+    // inicialização do número de agentes do processo atual
+    local_agents_count = 0;
+
+    // todos os processos iteram sobre o número total de agentes
     for (int a = 0; a < N_AGENTS; a++) {
-        int x = rand() % W;
-        int y = rand() % H;
-        grid[y][x].type = VILLAGE;
-        grid[y][x].resource = f_resource(VILLAGE);
-        grid[y][x].accessible = f_accessible(VILLAGE, DRY);
-        agents[a].x = x;
-        agents[a].y = y;
-        agents[a].energy = 100.0f;
+        // gera as mesmas coordenadas globais em todos os processos
+        int global_x = rand() % W;
+        int global_y = rand() % H;
+
+        // verifica se as coordenadas geradas estão no subgrid do atual processo
+        if(global_y >= offsetY && global_y < offsetY + local_H){
+
+            // converte a coordenada global de Y para a local
+            // soma 1 para considerar o halo
+            int local_y = (global_y - offsetY) + 1;
+
+            // atualização do grid local
+            local_grid[local_y][global_x].type = VILLAGE;
+            local_grid[local_y][global_x].resource = f_resource(VILLAGE);
+            local_grid[local_y][global_x].accessible = f_accessible(VILLAGE, DRY);
+            
+            // salva o agente no vetor local do processo
+            agents[local_agents_count].x = global_x;
+            agents[local_agents_count].y = local_y;
+            agents[local_agents_count].energy = 100.0f;
+
+            // incrementa o número de agentes locais
+            local_agents_count++;
+        }
     }
 }
 
@@ -170,7 +190,7 @@ float avg_energy() {
 // variáveis globais MPI
 int rank        /**< Identificador do processo atual do MPI. */
 int size;       /**< Número total de processos MPI rodando. */
-int local_H;    /**< Altura d fatia do subgrid local do processo MPI. */
+int local_H;    /**< Altura da fatia do subgrid local do processo MPI. */
 int offsetY;    /**< Deslocamento vertical global onde começa a atual fatia. */
 
 /** Matriz de alocação dinâmica da fatia do grid global.
@@ -201,7 +221,7 @@ int main(int argc, char** argv) {
     current_season = INITIAL_SEASON;
 
     init_local_grid();
-    init_agents();
+    init_local_ agents();
 
     printf("Cycle | Season | Avg Resource | Avg Energy\n");
     printf("------+--------+--------------+-----------\n");
