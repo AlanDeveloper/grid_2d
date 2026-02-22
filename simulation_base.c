@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <mpih.>
 
 #define W 64
 #define H 64
@@ -28,10 +29,6 @@ typedef struct {
     float energy;
 } Agent;
 
-Cell grid[H][W];
-Agent agents[N_AGENTS];
-Season current_season;
-
 CellType f_type(int gx, int gy) {
     int v = (gx * 7 + gy * 13) % 5;
     return (CellType) v;
@@ -54,14 +51,20 @@ int f_accessible(CellType type, Season s) {
     return 1;
 }
 
-void init_grid() {
+void init_local_grid() {
     srand(42);
-    for (int i = 0; i < H; i++) {
+
+    // iteração de 1 até local_H, sendo 0 e local_h + 1 os halos
+    for (int i = 0; i <= local_H; i++) {
         for (int j = 0; j < W; j++) {
-            grid[i][j].type = f_type(j, i);
-            grid[i][j].resource = f_resource(grid[i][j].type);
-            grid[i][j].accessible = f_accessible(grid[i][j].type, DRY);
-            grid[i][j].accumulated_consumption = 0.0f;
+            int gx = j;                     // coordenada x é igual à global
+            int gy = offsetY + (i - 1);     // mapeia a coluna local para a coluna global
+            
+            // preenche as células locais de acordo com as regras globais
+            local_grid[i][j].type = f_type(gx, gy);
+            local_grid[i][j].resource = f_resource(grid[i][j].type);
+            local_grid[i][j].accessible = f_accessible(grid[i][j].type, INITIAL_SEASON);
+            local_grid[i][j].accumulated_consumption = 0.0f;
         }
     }
 }
@@ -164,9 +167,40 @@ float avg_energy() {
     return total / N_AGENTS;
 }
 
-int main() {
+// variáveis globais MPI
+int rank        /**< Identificador do processo atual do MPI. */
+int size;       /**< Número total de processos MPI rodando. */
+int local_H;    /**< Altura d fatia do subgrid local do processo MPI. */
+int offsetY;    /**< Deslocamento vertical global onde começa a atual fatia. */
+
+/** Matriz de alocação dinâmica da fatia do grid global.
+ * Deve incluir 2 linhas extras para a troca de bordas (halo).
+ */
+Cell local_grid**;
+Agent agents[N_AGENTS];
+int local_agents_count = 0;
+Season current_season;
+
+int main(int argc, char** argv) {
+
+    // inicialização do MPI
+    MPI_Init(&argc, &argv);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+    // particionando o grid global em fatias horizontais
+    local_H = H / size;
+    offsetY = rank * local_H;
+
+    // alocação do subgrid local com halo em cima e embaixo
+    local_grid = (Cell **)malloc((local_H + 2) * sizeof(Cell *));
+    for(int i = 0; i < local_H + 2; i++){
+        local_grid[i] = (Cell *)malloc(W * sizeof(Cell));
+    }
+
     current_season = INITIAL_SEASON;
-    init_grid();
+
+    init_local_grid();
     init_agents();
 
     printf("Cycle | Season | Avg Resource | Avg Energy\n");
@@ -186,5 +220,7 @@ int main() {
         }
     }
 
+    // finalização do MPI
+    MPI_Finalize();
     return 0;
 }
