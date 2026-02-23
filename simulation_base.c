@@ -38,7 +38,7 @@ CellType f_type(int gx, int gy) {
  *  VARIÁVEIS GLOBAIS DO MPI
  ***********************************************/
 
-int rank        /**< Identificador do processo atual do MPI. */
+int rank;        /**< Identificador do processo atual do MPI. */
 int size;       /**< Número total de processos MPI rodando. */
 int local_H;    /**< Altura da fatia do subgrid local do processo MPI. */
 int offsetY;    /**< Deslocamento vertical global onde começa a atual fatia. */
@@ -317,45 +317,105 @@ float avg_energy() {
 }
 
 int main(int argc, char** argv) {
-
+    
     // inicialização do MPI
-    MPI_Init(&argc, &argv);
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
+    MPI_Init(&argc, &argv); 
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank); 
+    MPI_Comm_size(MPI_COMM_WORLD, &size); 
 
-    // particionando o grid global em fatias horizontais
-    local_H = H / size;
-    offsetY = rank * local_H;
+    // particionando o grid global
+    local_H = H / size; 
+    offsetY = rank * local_H; 
 
-    // alocação do subgrid local com halo em cima e embaixo
+    // alocação dinâmica dos subgrids
     local_grid = (Cell **)malloc((local_H + 2) * sizeof(Cell *));
-    for(int i = 0; i < local_H + 2; i++){
+    for (int i = 0; i < local_H + 2; i++) {
         local_grid[i] = (Cell *)malloc(W * sizeof(Cell));
     }
 
     current_season = INITIAL_SEASON;
 
+    // inicialização de subgrids e agentes
     init_local_grid();
-    init_local_ agents();
+    init_local_agents();
 
-    printf("Cycle | Season | Avg Resource | Avg Energy\n");
-    printf("------+--------+--------------+-----------\n");
-
-    for (int t = 0; t < T; t++) {
-        update_season(t);
-        process_agents();
-        update_grid();
-
-        if (t % 5 == 0) {
-            printf("  %3d | %s  |    %.2f      |   %.2f\n",
-                t,
-                current_season == DRY ? "DRY " : "WET ",
-                avg_resource(),
-                avg_energy());
-        }
+    if (rank == 0) {
+        printf("Cycle | Season | Avg Resource | Avg Energy\n");
+        printf("------+--------+--------------+-----------\n");
     }
 
+    // laço principal da simulação
+    for (int t = 0; t < T; t++) { 
+        
+        // atualização da estação e transmitir para todos os processos
+        if (t > 0 && t % S == 0) { 
+            if (rank == 0) current_season = (current_season == DRY) ? WET : DRY; 
+            
+            // rank 0 avisa a todos sobre a nova estação
+            MPI_Bcast(&current_season, 1, MPI_INT, 0, MPI_COMM_WORLD); 
+            
+            // todos atualizam a acessibilidade das suas células locais
+            for (int i = 1; i <= local_H; i++) {
+                for (int j = 0; j < W; j++) {
+                    local_grid[i][j].accessible = f_accessible(local_grid[i][j].type, current_season);
+                }
+            }
+        }
+
+        // troca de halos dos grids
+        exchange_grid_halos(); 
+
+        // processar agentes
+        process_agents(); 
+
+        // migração de agentes
+        migrate_agents(); 
+
+        // atualização do grid local
+        update_local_grid(); 
+
+        // cálculo das métricas globais
+        if (t % 5 == 0) { 
+            float local_res_sum = 0.0f, local_energy_sum = 0.0f;
+            
+            // cálculo dos recursos globais
+            for (int i = 1; i <= local_H; i++)
+                for (int j = 0; j < W; j++)
+                    local_res_sum += local_grid[i][j].resource;
+
+            // cálculo da energia dos agentes
+            for (int a = 0; a < local_agents_count; a++)
+                local_energy_sum += agents[a].energy;
+            
+            int local_agent_count = local_agents_count;
+
+            float global_res_sum = 0.0f, global_energy_sum = 0.0f;
+            int global_agent_count = 0;
+
+            // MPI_Allreduce soma as métricas locais de todos os processos
+            MPI_Allreduce(&local_res_sum, &global_res_sum, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD); 
+            MPI_Allreduce(&local_energy_sum, &global_energy_sum, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD); 
+            MPI_Allreduce(&local_agent_count, &global_agent_count, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD); 
+
+            if (rank == 0) {
+                float avg_res = global_res_sum / (W * H);
+                float avg_eng = (global_agent_count > 0) ? (global_energy_sum / global_agent_count) : 0.0f;
+                printf("  %3d | %s  |    %.2f      |   %.2f\n",
+                    t, current_season == DRY ? "DRY " : "WET ", avg_res, avg_eng);
+            }
+        }
+        
+        // uso de sincronização
+        MPI_Barrier(MPI_COMM_WORLD); 
+    }
+
+    // liberação de memória da matriz
+    for (int i = 0; i < local_H + 2; i++) {
+        free(local_grid[i]);
+    }
+    free(local_grid);
+
     // finalização do MPI
-    MPI_Finalize();
+    MPI_Finalize(); 
     return 0;
 }
