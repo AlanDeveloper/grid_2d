@@ -78,7 +78,7 @@ void init_local_grid() {
     srand(42);
 
     // iteração de 1 até local_H, sendo 0 e local_h + 1 os halos
-    for (int i = 0; i <= local_H; i++) {
+    for (int i = 1; i <= local_H; i++) {
         for (int j = 0; j < W; j++) {
             int gx = j;                     // coordenada x é igual à global
             int gy = offsetY + (i - 1);     // mapeia a coluna local para a coluna global
@@ -236,9 +236,53 @@ void process_agents() {
             agents[i] = kept_agents[i];
         }
         local_agents_count = kept_count;
-        
+
         //grid[ny][nx].accumulated_consumption += CONSUME_PER_AGENT;
     }
+}
+
+void migrate_agents() {
+    int up_neighbor = (rank == 0) ? MPI_PROC_NULL : rank - 1;
+    int down_neighbor = (rank == size - 1) ? MPI_PROC_NULL : rank + 1;
+
+    int in_up_count = 0;
+    int in_down_count = 0;
+
+    // trocar entre processos a contagem de agentes, envia pra CIMA e recebe de BAIXO
+    MPI_Sendrecv(&out_up_count, 1, MPI_INT, up_neighbor, 2,
+                 &in_down_count, 1, MPI_INT, down_neighbor, 2,
+                 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+    // envia pra BAIXO recebe de CIMA
+    MPI_Sendrecv(&out_down_count, 1, MPI_INT, down_neighbor, 3,
+                 &in_up_count, 1, MPI_INT, up_neighbor, 3,
+                 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+    // arrays temporários para receber agentes 
+    Agent *in_up = (Agent*) malloc(in_up_count * sizeof(Agent));
+    Agent *in_down = (Agent*) malloc(in_down_count * sizeof(Agent));
+
+    // envia buffers de agentes para os processos vizinhos, envia para CIMA e recebe de BAIXO
+    MPI_Sendrecv(out_up, out_up_count * sizeof(Agent), MPI_BYTE, up_neighbor, 4,
+                 in_down, in_down_count * sizeof(Agent), MPI_BYTE, down_neighbor, 4,
+                 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+    // envia para BAIXO e recebe de CIMA
+    MPI_Sendrecv(out_down, out_down_count * sizeof(Agent), MPI_BYTE, down_neighbor, 5,
+                 in_up, in_up_count * sizeof(Agent), MPI_BYTE, up_neighbor, 5,
+                 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+    // atualizando lista local de agentes
+    for (int i = 0; i < in_up_count; i++) {
+        agents[local_agents_count++] = in_up[i];
+    }
+    for (int i = 0; i < in_down_count; i++) {
+        agents[local_agents_count++] = in_down[i];
+    }
+
+    // liberação de memória
+    free(in_up);
+    free(in_down);
 }
 
 void update_grid() {
