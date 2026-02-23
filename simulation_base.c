@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <mpih.>
+#include <mpi.h>
 
 #define W 64
 #define H 64
@@ -33,6 +33,29 @@ CellType f_type(int gx, int gy) {
     int v = (gx * 7 + gy * 13) % 5;
     return (CellType) v;
 }
+
+/*******************************************//**
+ *  VARIÁVEIS GLOBAIS DO MPI
+ ***********************************************/
+
+int rank        /**< Identificador do processo atual do MPI. */
+int size;       /**< Número total de processos MPI rodando. */
+int local_H;    /**< Altura da fatia do subgrid local do processo MPI. */
+int offsetY;    /**< Deslocamento vertical global onde começa a atual fatia. */
+
+/** Matriz de alocação dinâmica da fatia do grid global.
+ * Deve incluir 2 linhas extras para a troca de bordas (halo).
+ */
+Cell local_grid**;
+Agent agents[N_AGENTS];         /**< Vetor de agentes do processo local. */
+int local_agents_count = 0;     /**< Número de agentes no processo local */
+Season current_season;          /**< Atual estação da simulação. */
+
+Agent out_up[N_AGENTS];   /**<  agentes indo para o vizinho de CIMA */
+int out_up_count = 0;     /**< número de agentes migrando para CIMA */
+
+Agent out_down[N_AGENTS]; /**< agentes indo para o vizinho de BAIXO */
+int out_down_count = 0;   /**< número de agentes migrando para BAIXO */
 
 float f_resource(CellType type) {
     switch (type) {
@@ -108,6 +131,7 @@ void exchange_grid_halos() {
     int down_neighbor = rank + 1;
 
     // verifica se o processo possui vizinho acima e abaixo
+    // https://stackoverflow.com/questions/72747693/send-to-a-negative-mpi-rank-destination
     if (up_neighbor < 0) up_neighbor = MPI_PROC_NULL;
     if (down_neighbor >= size) down_neighbor = MPI_PROC_NULL;
 
@@ -170,21 +194,50 @@ int best_neighbor(int ax, int ay, int *nx, int *ny) {
 }
 
 void process_agents() {
-    for (int a = 0; a < N_AGENTS; a++) {
+
+    Agent kept_agents[N_AGENTS];            /**< Vetor de agentes que permanecem. */
+    int kept_count;                         /**< Número de agentes que permanecem. */
+    int out_up_count = 0;                   /**< Número de agentes que migram pra cima. */
+    int out_down_count = 0;                 /**< Número de agentes que vão para baixo. */
+
+    for (int a = 0; a < local_agents_count; a++) {
         int ax = agents[a].x;
         int ay = agents[a].y;
-        float r = grid[ay][ax].resource;
+        float r = local_grid[ay][ax].resource;
 
         run_synthetic_load(r);
 
         int nx, ny;
         best_neighbor(ax, ay, &nx, &ny);
+
         agents[a].x = nx;
         agents[a].y = ny;
-
-        grid[ny][nx].accumulated_consumption += CONSUME_PER_AGENT;
         agents[a].energy -= 1.0f;
         if (agents[a].energy < 0.0f) agents[a].energy = 0.0f;
+
+        // se o destino é local, ou seja, o próprio subgrid
+        if(ny >= 1 && ny <= local_H){
+            local_grid[ny][nx].accumulated_consumption += CONSUME_PER_AGENT;
+            kept_agents[kept_count++] = agents[a];      // adiciona na lista local
+        }
+        // senão, o agente vai migrar
+        else{
+            if(ny == 0){    // migra pra CIMA
+                agents[a].y = local_H;
+                out_up[out_up_count++] = agents[a];
+            } else if(ny == local_H + 1){   // migra pra BAIXO
+                agents[a].y = 1             // primeira linha real do grid debaixo
+                out_down[out_down_count++] = agents[a]; // adiciona no buffer de saída
+            }
+        }
+
+        // atualiza a lista oficial do processo apenas com os agentes que ficaram
+        for (int i = 0; i < kept_count; i++) {
+            agents[i] = kept_agents[i];
+        }
+        local_agents_count = kept_count;
+        
+        //grid[ny][nx].accumulated_consumption += CONSUME_PER_AGENT;
     }
 }
 
@@ -214,20 +267,6 @@ float avg_energy() {
         total += agents[a].energy;
     return total / N_AGENTS;
 }
-
-// variáveis globais MPI
-int rank        /**< Identificador do processo atual do MPI. */
-int size;       /**< Número total de processos MPI rodando. */
-int local_H;    /**< Altura da fatia do subgrid local do processo MPI. */
-int offsetY;    /**< Deslocamento vertical global onde começa a atual fatia. */
-
-/** Matriz de alocação dinâmica da fatia do grid global.
- * Deve incluir 2 linhas extras para a troca de bordas (halo).
- */
-Cell local_grid**;
-Agent agents[N_AGENTS];
-int local_agents_count = 0;
-Season current_season;
 
 int main(int argc, char** argv) {
 
