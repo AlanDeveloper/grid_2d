@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <mpi.h>
+#include <omp.h>
 
 #define W 64
 #define H 64
@@ -29,10 +30,6 @@ typedef struct {
     float energy;
 } Agent;
 
-CellType f_type(int gx, int gy) {
-    int v = (gx * 7 + gy * 13) % 5;
-    return (CellType) v;
-}
 
 /*******************************************//**
  *  VARIÁVEIS GLOBAIS DO MPI
@@ -46,7 +43,7 @@ int offsetY;    /**< Deslocamento vertical global onde começa a atual fatia. */
 /** Matriz de alocação dinâmica da fatia do grid global.
  * Deve incluir 2 linhas extras para a troca de bordas (halo).
  */
-Cell local_grid**;
+Cell **local_grid;
 Agent agents[N_AGENTS];         /**< Vetor de agentes do processo local. */
 int local_agents_count = 0;     /**< Número de agentes no processo local */
 Season current_season;          /**< Atual estação da simulação. */
@@ -68,6 +65,11 @@ float f_resource(CellType type) {
     }
 }
 
+CellType f_type(int gx, int gy) {
+    int v = (gx * 7 + gy * 13) % 5;
+    return (CellType) v;
+}
+
 int f_accessible(CellType type, Season s) {
     if (type == RESTRICTED) return 0;
     if (type == FISHING && s == DRY) return 0;
@@ -77,16 +79,17 @@ int f_accessible(CellType type, Season s) {
 void init_local_grid() {
     srand(42);
 
-    // iteração de 1 até local_H, sendo 0 e local_h + 1 os halos
+    // iteração de 1 até local_H, sendo 0 e local_H + 1 os halos
     for (int i = 1; i <= local_H; i++) {
         for (int j = 0; j < W; j++) {
-            int gx = j;                     // coordenada x é igual à global
-            int gy = offsetY + (i - 1);     // mapeia a coluna local para a coluna global
+            int gx = j;                     // coordenada x (coluna) é igual à global
+            int gy = offsetY + (i - 1);     // mapeia a linha local para a linha global
             
             // preenche as células locais de acordo com as regras globais
             local_grid[i][j].type = f_type(gx, gy);
-            local_grid[i][j].resource = f_resource(grid[i][j].type);
-            local_grid[i][j].accessible = f_accessible(grid[i][j].type, INITIAL_SEASON);
+            
+            local_grid[i][j].resource = f_resource(local_grid[i][j].type);
+            local_grid[i][j].accessible = f_accessible(local_grid[i][j].type, INITIAL_SEASON);
             local_grid[i][j].accumulated_consumption = 0.0f;
         }
     }
@@ -165,27 +168,51 @@ void run_synthetic_load(float resource) {
 }
 
 void update_season(int t) {
+    // atualiza estação
     if (t > 0 && t % S == 0) {
-        current_season = (current_season == DRY) ? WET : DRY;
-        for (int i = 0; i < H; i++)
-            for (int j = 0; j < W; j++)
-                grid[i][j].accessible = f_accessible(grid[i][j].type, current_season);
+        
+        // rank 0 inverte o estado da estação
+        if (rank == 0) {
+            current_season = (current_season == DRY) ? WET : DRY;
+        }
+
+        // transmite a nova estação para todos os processos
+        MPI_Bcast(&current_season, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+        // cada processo atualiza apenas a acessibilidade das suas células reais
+        for (int i = 1; i <= local_H; i++) {
+            for (int j = 0; j < W; j++) {
+                local_grid[i][j].accessible = f_accessible(local_grid[i][j].type, current_season);
+            }
+        }
     }
 }
 
 int best_neighbor(int ax, int ay, int *nx, int *ny) {
     int dx[] = {0, 0, -1, 1};
     int dy[] = {-1, 1, 0, 0};
-    float best = grid[ay][ax].resource;
+    
+    float best = local_grid[ay][ax].resource;
     *nx = ax;
     *ny = ay;
+    
     for (int d = 0; d < 4; d++) {
         int vx = ax + dx[d];
         int vy = ay + dy[d];
-        if (vx < 0 || vx >= W || vy < 0 || vy >= H) continue;
-        if (!grid[vy][vx].accessible) continue;
-        if (grid[vy][vx].resource > best) {
-            best = grid[vy][vx].resource;
+        
+        // verificação de limites laterais
+        if (vx < 0 || vx >= W) continue; 
+        
+        // verificação de limites verticais
+        if (rank == 0 && vy == 0) continue; 
+        if (rank == size - 1 && vy == local_H + 1) continue; 
+        
+        // acessibilidade na matriz local
+        if (!local_grid[vy][vx].accessible) continue;
+        
+        // avaliação do recurso na matriz local
+        if (local_grid[vy][vx].resource > best) {
+            best = local_grid[vy][vx].resource;
             *nx = vx;
             *ny = vy;
         }
@@ -196,18 +223,22 @@ int best_neighbor(int ax, int ay, int *nx, int *ny) {
 void process_agents() {
 
     Agent kept_agents[N_AGENTS];            /**< Vetor de agentes que permanecem. */
-    int kept_count;                         /**< Número de agentes que permanecem. */
-    int out_up_count = 0;                   /**< Número de agentes que migram pra cima. */
-    int out_down_count = 0;                 /**< Número de agentes que vão para baixo. */
+    int kept_count = 0;
 
+    out_up_count = 0;                   
+    out_down_count = 0;                 
+
+    // processar agentes
     for (int a = 0; a < local_agents_count; a++) {
         int ax = agents[a].x;
         int ay = agents[a].y;
         float r = local_grid[ay][ax].resource;
 
+        // carga sintética computacional
         run_synthetic_load(r);
 
         int nx, ny;
+        // decide o deslocamento ou permanência no subgrid
         best_neighbor(ax, ay, &nx, &ny);
 
         agents[a].x = nx;
@@ -215,30 +246,28 @@ void process_agents() {
         agents[a].energy -= 1.0f;
         if (agents[a].energy < 0.0f) agents[a].energy = 0.0f;
 
-        // se o destino é local, ou seja, o próprio subgrid
+        // se o destino é local
         if(ny >= 1 && ny <= local_H){
             local_grid[ny][nx].accumulated_consumption += CONSUME_PER_AGENT;
-            kept_agents[kept_count++] = agents[a];      // adiciona na lista local
+            kept_agents[kept_count++] = agents[a];
         }
         // senão, o agente vai migrar
         else{
             if(ny == 0){    // migra pra CIMA
                 agents[a].y = local_H;
-                out_up[out_up_count++] = agents[a];
+                out_up[out_up_count++] = agents[a]; // adiciona no buffer 
             } else if(ny == local_H + 1){   // migra pra BAIXO
-                agents[a].y = 1             // primeira linha real do grid debaixo
-                out_down[out_down_count++] = agents[a]; // adiciona no buffer de saída
+                agents[a].y = 1;
+                out_down[out_down_count++] = agents[a]; // adiciona no buffer de saída 
             }
         }
-
-        // atualiza a lista oficial do processo apenas com os agentes que ficaram
-        for (int i = 0; i < kept_count; i++) {
-            agents[i] = kept_agents[i];
-        }
-        local_agents_count = kept_count;
-
-        //grid[ny][nx].accumulated_consumption += CONSUME_PER_AGENT;
     }
+
+    // atualiza a lista oficial do processo apenas com os agentes que ficaram 
+    for (int i = 0; i < kept_count; i++) {
+        agents[i] = kept_agents[i];
+    }
+    local_agents_count = kept_count;
 }
 
 void migrate_agents() {
@@ -289,7 +318,7 @@ void update_local_grid() {
     float regen = (current_season == DRY) ? REGEN_DRY : REGEN_WET;
 
     // iteração apenas no grid local, ignorando halos
-    for (int i = 1; i < local_H; i++) {
+    for (int i = 1; i <= local_H; i++) {
         for (int j = 0; j < W; j++) {
             local_grid[i][j].resource += regen - local_grid[i][j].accumulated_consumption;
 
@@ -301,20 +330,20 @@ void update_local_grid() {
     }
 }
 
-float avg_resource() {
-    float total = 0.0f;
-    for (int i = 0; i < H; i++)
-        for (int j = 0; j < W; j++)
-            total += grid[i][j].resource;
-    return total / (W * H);
-}
+// float avg_resource() {
+//     float total = 0.0f;
+//     for (int i = 0; i < H; i++)
+//         for (int j = 0; j < W; j++)
+//             total += grid[i][j].resource;
+//     return total / (W * H);
+// }
 
-float avg_energy() {
-    float total = 0.0f;
-    for (int a = 0; a < N_AGENTS; a++)
-        total += agents[a].energy;
-    return total / N_AGENTS;
-}
+// float avg_energy() {
+//     float total = 0.0f;
+//     for (int a = 0; a < N_AGENTS; a++)
+//         total += agents[a].energy;
+//     return total / N_AGENTS;
+// }
 
 int main(int argc, char** argv) {
     
