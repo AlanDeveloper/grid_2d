@@ -102,6 +102,34 @@ void init_local_agents() {
     }
 }
 
+void exchange_grid_halos() {
+    // definição de quem são os vizinhos acima e abaixo
+    int up_neighbor = rank - 1;
+    int down_neighbor = rank + 1;
+
+    // verifica se o processo possui vizinho acima e abaixo
+    if (up_neighbor < 0) up_neighbor = MPI_PROC_NULL;
+    if (down_neighbor >= size) down_neighbor = MPI_PROC_NULL;
+
+    // envia para CIMA e recebe de BAIXO
+    // envia a primeira linha real (índice 1) para o vizinho de cima
+    // recebe a linha dele na linha fantasma inferior (índice local_H + 1).
+    MPI_Sendrecv(
+        local_grid[1], W * sizeof(Cell), MPI_BYTE, up_neighbor, 0,
+        local_grid[local_H + 1], W * sizeof(Cell), MPI_BYTE, down_neighbor, 0,
+        MPI_COMM_WORLD, MPI_STATUS_IGNORE
+    );
+
+    // envia para BAIXO e recebe de CIMA
+    // envia a última linha real (índice local_H) para o vizinho de baixo
+    // recebe a linha dele na linha fantasma superior (índice 0).
+    MPI_Sendrecv(
+        local_grid[local_H], W * sizeof(Cell), MPI_BYTE, down_neighbor, 1,
+        local_grid[0], W * sizeof(Cell), MPI_BYTE, up_neighbor, 1,
+        MPI_COMM_WORLD, MPI_STATUS_IGNORE
+    );
+}
+
 void run_synthetic_load(float resource) {
     int cost = (int)(resource * MAX_COST / 100.0f);
     if (cost > MAX_COST) cost = MAX_COST;
