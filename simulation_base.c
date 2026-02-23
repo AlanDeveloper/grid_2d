@@ -285,14 +285,18 @@ void migrate_agents() {
     free(in_down);
 }
 
-void update_grid() {
+void update_local_grid() {
     float regen = (current_season == DRY) ? REGEN_DRY : REGEN_WET;
-    for (int i = 0; i < H; i++) {
+
+    // iteração apenas no grid local, ignorando halos
+    for (int i = 1; i < local_H; i++) {
         for (int j = 0; j < W; j++) {
-            grid[i][j].resource += regen - grid[i][j].accumulated_consumption;
-            if (grid[i][j].resource < 0.0f) grid[i][j].resource = 0.0f;
-            if (grid[i][j].resource > 100.0f) grid[i][j].resource = 100.0f;
-            grid[i][j].accumulated_consumption = 0.0f;
+            local_grid[i][j].resource += regen - local_grid[i][j].accumulated_consumption;
+
+            // garante que os recursos fiquem na faixa entre 0 e 100
+            if (local_grid[i][j].resource < 0.0f) local_grid[i][j].resource = 0.0f;
+            if (local_grid[i][j].resource > 100.0f) local_grid[i][j].resource = 100.0f;
+            local_grid[i][j].accumulated_consumption = 0.0f;
         }
     }
 }
