@@ -1,0 +1,14 @@
+# Arquivos objeto (arquivos compilados intermediários)
+*.o
+
+# Bibliotecas compiladas localmente
+*.so
+*.a
+
+# Executável padrão gerado pelo GCC
+a.out
+
+# Diretórios de compilação
+bin/
+build/
+out/
