@@ -30,4 +30,4 @@ clean:
 
 # regra de atalho para rodar a simulação com 4 processos MPI
 run: $(TARGET)
-	mpirun --host localhost:4 ./$(TARGET)
+	OMP_NUM_THREADS=4 mpirun --host localhost:4 $(TARGET)
