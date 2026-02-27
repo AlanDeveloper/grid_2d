@@ -28,6 +28,6 @@ $(TARGET): $(SRC)
 clean:
 	rm -rf $(BIN_DIR)
 
-# regra de atalho para rodar a simulação com 4 processos MPI
+# regra de atalho para rodar a simulação com 4 processos MPI e 4 threads para OpenMP
 run: $(TARGET)
 	OMP_NUM_THREADS=4 mpirun --host localhost:4 $(TARGET)
