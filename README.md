@@ -5,13 +5,13 @@ Sequential base implementation of a 2D grid simulation where indigenous family g
 ## Requirements
 
 - GCC
-- Make (optional)
+- Make
 
 ## How to run
 
 ```bash
-gcc -O0 -o simulation simulation_base.c -lm
-./simulation
+make all
+make run
 ```
 
 ## Parameters
