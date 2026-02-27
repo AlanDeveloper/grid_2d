@@ -1,3 +1,21 @@
+/**
+ * @file simulation_base.c
+ * @brief Implementação de um ambiente para simulação de agentes utilizando MPI e OpenMP.
+ * 
+ * O código a seguir implementa a simulação de agentes que exploram um grid global
+ * em busca de recursos. O principal objetivo é codificar a simulação de maneira
+ * a explorar o paralelismo de sistemas multiprocessados usando OpenMP e a
+ * distribuição da carga computacional em processos para topologias multicomputadores
+ * utilizando MPI.
+ * 
+ * @author Alan Santos
+ * @author Lucas Araújo
+ * @author Rodrigo Raupp
+ * 
+ * @date 27 Fev 2026
+ * 
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
