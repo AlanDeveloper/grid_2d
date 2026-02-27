@@ -84,10 +84,10 @@ void init_local_grid() {
         for (int j = 0; j < W; j++) {
             int gx = j;                     // coordenada x (coluna) é igual à global
             int gy = offsetY + (i - 1);     // mapeia a linha local para a linha global
-            
+
             // preenche as células locais de acordo com as regras globais
             local_grid[i][j].type = f_type(gx, gy);
-            
+
             local_grid[i][j].resource = f_resource(local_grid[i][j].type);
             local_grid[i][j].accessible = f_accessible(local_grid[i][j].type, INITIAL_SEASON);
             local_grid[i][j].accumulated_consumption = 0.0f;
@@ -115,8 +115,8 @@ void init_local_agents() {
             // atualização do grid local
             local_grid[local_y][global_x].type = VILLAGE;
             local_grid[local_y][global_x].resource = f_resource(VILLAGE);
-            local_grid[local_y][global_x].accessible = f_accessible(VILLAGE, DRY);
-            
+            local_grid[local_y][global_x].accessible = f_accessible(VILLAGE, INITIAL_SEASON);
+
             // salva o agente no vetor local do processo
             agents[local_agents_count].x = global_x;
             agents[local_agents_count].y = local_y;
@@ -170,7 +170,7 @@ void run_synthetic_load(float resource) {
 void update_season(int t) {
     // atualiza estação
     if (t > 0 && t % S == 0) {
-        
+
         // rank 0 inverte o estado da estação
         if (rank == 0) {
             current_season = (current_season == DRY) ? WET : DRY;
@@ -191,25 +191,25 @@ void update_season(int t) {
 int best_neighbor(int ax, int ay, int *nx, int *ny) {
     int dx[] = {0, 0, -1, 1};
     int dy[] = {-1, 1, 0, 0};
-    
+
     float best = local_grid[ay][ax].resource;
     *nx = ax;
     *ny = ay;
-    
+
     for (int d = 0; d < 4; d++) {
         int vx = ax + dx[d];
         int vy = ay + dy[d];
-        
+
         // verificação de limites laterais
-        if (vx < 0 || vx >= W) continue; 
-        
+        if (vx < 0 || vx >= W) continue;
+
         // verificação de limites verticais
-        if (rank == 0 && vy == 0) continue; 
-        if (rank == size - 1 && vy == local_H + 1) continue; 
-        
+        if (rank == 0 && vy == 0) continue;
+        if (rank == size - 1 && vy == local_H + 1) continue;
+
         // acessibilidade na matriz local
         if (!local_grid[vy][vx].accessible) continue;
-        
+
         // avaliação do recurso na matriz local
         if (local_grid[vy][vx].resource > best) {
             best = local_grid[vy][vx].resource;
@@ -225,8 +225,8 @@ void process_agents() {
     Agent kept_agents[N_AGENTS];            /**< Vetor de agentes que permanecem. */
     int kept_count = 0;
 
-    out_up_count = 0;                   
-    out_down_count = 0;                 
+    out_up_count = 0;
+    out_down_count = 0;
 
     // processar agentes
     for (int a = 0; a < local_agents_count; a++) {
@@ -255,15 +255,15 @@ void process_agents() {
         else{
             if(ny == 0){    // migra pra CIMA
                 agents[a].y = local_H;
-                out_up[out_up_count++] = agents[a]; // adiciona no buffer 
+                out_up[out_up_count++] = agents[a]; // adiciona no buffer
             } else if(ny == local_H + 1){   // migra pra BAIXO
                 agents[a].y = 1;
-                out_down[out_down_count++] = agents[a]; // adiciona no buffer de saída 
+                out_down[out_down_count++] = agents[a]; // adiciona no buffer de saída
             }
         }
     }
 
-    // atualiza a lista oficial do processo apenas com os agentes que ficaram 
+    // atualiza a lista oficial do processo apenas com os agentes que ficaram
     for (int i = 0; i < kept_count; i++) {
         agents[i] = kept_agents[i];
     }
@@ -287,7 +287,7 @@ void migrate_agents() {
                  &in_up_count, 1, MPI_INT, up_neighbor, 3,
                  MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-    // arrays temporários para receber agentes 
+    // arrays temporários para receber agentes
     Agent *in_up = (Agent*) malloc(in_up_count * sizeof(Agent));
     Agent *in_down = (Agent*) malloc(in_down_count * sizeof(Agent));
 
@@ -346,15 +346,15 @@ void update_local_grid() {
 // }
 
 int main(int argc, char** argv) {
-    
+
     // inicialização do MPI
-    MPI_Init(&argc, &argv); 
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank); 
-    MPI_Comm_size(MPI_COMM_WORLD, &size); 
+    MPI_Init(&argc, &argv);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
 
     // particionando o grid global
-    local_H = H / size; 
-    offsetY = rank * local_H; 
+    local_H = H / size;
+    offsetY = rank * local_H;
 
     // alocação dinâmica dos subgrids
     local_grid = (Cell **)malloc((local_H + 2) * sizeof(Cell *));
@@ -374,15 +374,15 @@ int main(int argc, char** argv) {
     }
 
     // laço principal da simulação
-    for (int t = 0; t < T; t++) { 
-        
+    for (int t = 0; t < T; t++) {
+
         // atualização da estação e transmitir para todos os processos
-        if (t > 0 && t % S == 0) { 
-            if (rank == 0) current_season = (current_season == DRY) ? WET : DRY; 
-            
+        if (t > 0 && t % S == 0) {
+            if (rank == 0) current_season = (current_season == DRY) ? WET : DRY;
+
             // rank 0 avisa a todos sobre a nova estação
-            MPI_Bcast(&current_season, 1, MPI_INT, 0, MPI_COMM_WORLD); 
-            
+            MPI_Bcast(&current_season, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
             // todos atualizam a acessibilidade das suas células locais
             for (int i = 1; i <= local_H; i++) {
                 for (int j = 0; j < W; j++) {
@@ -392,21 +392,21 @@ int main(int argc, char** argv) {
         }
 
         // troca de halos dos grids
-        exchange_grid_halos(); 
+        exchange_grid_halos();
 
         // processar agentes
-        process_agents(); 
+        process_agents();
 
         // migração de agentes
-        migrate_agents(); 
+        migrate_agents();
 
         // atualização do grid local
-        update_local_grid(); 
+        update_local_grid();
 
         // cálculo das métricas globais
-        if (t % 5 == 0) { 
+        if (t % 5 == 0) {
             float local_res_sum = 0.0f, local_energy_sum = 0.0f;
-            
+
             // cálculo dos recursos globais
             for (int i = 1; i <= local_H; i++)
                 for (int j = 0; j < W; j++)
@@ -415,16 +415,16 @@ int main(int argc, char** argv) {
             // cálculo da energia dos agentes
             for (int a = 0; a < local_agents_count; a++)
                 local_energy_sum += agents[a].energy;
-            
+
             int local_agent_count = local_agents_count;
 
             float global_res_sum = 0.0f, global_energy_sum = 0.0f;
             int global_agent_count = 0;
 
             // MPI_Allreduce soma as métricas locais de todos os processos
-            MPI_Allreduce(&local_res_sum, &global_res_sum, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD); 
-            MPI_Allreduce(&local_energy_sum, &global_energy_sum, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD); 
-            MPI_Allreduce(&local_agent_count, &global_agent_count, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD); 
+            MPI_Allreduce(&local_res_sum, &global_res_sum, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+            MPI_Allreduce(&local_energy_sum, &global_energy_sum, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+            MPI_Allreduce(&local_agent_count, &global_agent_count, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
 
             if (rank == 0) {
                 float avg_res = global_res_sum / (W * H);
@@ -433,9 +433,9 @@ int main(int argc, char** argv) {
                     t, current_season == DRY ? "DRY " : "WET ", avg_res, avg_eng);
             }
         }
-        
+
         // uso de sincronização
-        MPI_Barrier(MPI_COMM_WORLD); 
+        MPI_Barrier(MPI_COMM_WORLD);
     }
 
     // liberação de memória da matriz
@@ -445,6 +445,6 @@ int main(int argc, char** argv) {
     free(local_grid);
 
     // finalização do MPI
-    MPI_Finalize(); 
+    MPI_Finalize();
     return 0;
 }
