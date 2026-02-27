@@ -1,33 +1,64 @@
+/**
+ * @file simulation_base.c
+ * @brief Implementação de um ambiente para simulação de agentes utilizando MPI e OpenMP.
+ * 
+ * O código a seguir implementa a simulação de agentes que exploram um grid global
+ * em busca de recursos. O principal objetivo é codificar a simulação de maneira
+ * a explorar o paralelismo de sistemas multiprocessados usando OpenMP e a
+ * distribuição da carga computacional em processos para topologias multicomputadores
+ * utilizando MPI.
+ * 
+ * @author Alan Santos
+ * @author Lucas Araújo
+ * @author Rodrigo Raupp
+ * 
+ * @date 27 Fev 2026
+ * 
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <mpi.h>
 #include <omp.h>
 
-#define W 64
-#define H 64
-#define T 40
-#define S 10
-#define N_AGENTS 200
-#define MAX_COST 100
-#define REGEN_DRY 0.10f
-#define REGEN_WET 0.30f
-#define CONSUME_PER_AGENT 1.0f
-#define INITIAL_SEASON DRY
+#define W 64                            /**< Largura do grid global. */
+#define H 64                            /**< Altura do grid global. */
+#define T 40                            /**< Número total de ciclos da simulação. */
+#define S 10                            /**< Duração em ciclos das estações. */
+#define N_AGENTS 200                    /**< Número total de agentes da simulação. */
+#define MAX_COST 100                    /**< Custo máximo para rodar a função de computação sintética. */
+#define REGEN_DRY 0.10f                 /**< Taxa de regeneração durante a estação de seca. */
+#define REGEN_WET 0.30f                 /**< Taxa de regeneração durante a estação de cheia. */
+#define CONSUME_PER_AGENT 1.0f          /**< Taxa de consumo de recursos por agente. */
+#define INITIAL_SEASON DRY              /**< Configuração da estação inicial da simulação. */
 
+/**
+ * @brief Define as estações suportadas pela simulação.
+ */
 typedef enum { DRY = 0, WET = 1 } Season;
+
+/**
+ * @brief Define o tipo de célula da grade da simulação.
+ */
 typedef enum { VILLAGE = 0, FISHING, GATHERING, FARMLAND, RESTRICTED } CellType;
 
+/**
+ * @brief Estrutura de dados para cada célula da grade.
+ */
 typedef struct {
-    CellType type;
-    float resource;
-    int accessible;
-    float accumulated_consumption;
+    CellType type;                      /**< Tipo de célula estipulado por enum. */
+    float resource;                     /**< Quantidade de recurso disponível na célula de acordo com seu tipo, consumo e regeneração. */
+    int accessible;                     /**< Indicador de território acessível para agentes. */
+    float accumulated_consumption;      /**< Consumo acumulado dos agentes que habitam a célula. */
 } Cell;
 
+/**
+ * @brief Estrutura de dados que define o agente que explora o território.
+ */
 typedef struct {
-    int x, y;
-    float energy;
+    int x, y;           /**< Coordenadas da posição do agente no subgrid. */
+    float energy;       /**< Energia, ou vida, do agente. */
 } Agent;
 
 
@@ -35,9 +66,9 @@ typedef struct {
  *  VARIÁVEIS GLOBAIS DO MPI
  ***********************************************/
 
-int rank;        /**< Identificador do processo atual do MPI. */
+int rank;       /**< Identificador do processo atual do MPI. */
 int size;       /**< Número total de processos MPI rodando. */
-int local_H;    /**< Altura da fatia do subgrid local do processo MPI. */
+int local_H;    /**< Indicador do começo do subgrid local. */
 int offsetY;    /**< Deslocamento vertical global onde começa a atual fatia. */
 
 /** Matriz de alocação dinâmica da fatia do grid global.
@@ -48,12 +79,18 @@ Agent agents[N_AGENTS];         /**< Vetor de agentes do processo local. */
 int local_agents_count = 0;     /**< Número de agentes no processo local */
 Season current_season;          /**< Atual estação da simulação. */
 
-Agent out_up[N_AGENTS];   /**<  agentes indo para o vizinho de CIMA */
+Agent out_up[N_AGENTS];   /**< agentes indo para o vizinho de CIMA */
 int out_up_count = 0;     /**< número de agentes migrando para CIMA */
 
 Agent out_down[N_AGENTS]; /**< agentes indo para o vizinho de BAIXO */
 int out_down_count = 0;   /**< número de agentes migrando para BAIXO */
 
+/**
+ * @brief Configura a quantidade de recurso da célula de acordo com seu tipo.
+ * 
+ * @param[in] type Tipo da célula.
+ * @return O valor do recurso a depender do tipo de célula.
+ */
 float f_resource(CellType type) {
     switch (type) {
         case VILLAGE:    return 80.0f;
@@ -65,17 +102,41 @@ float f_resource(CellType type) {
     }
 }
 
+/**
+ * @brief Configura de maneira determinística o tipo de célula para as coordenadas de entrada.
+ * 
+ * @param[in] gx Posição global de x da grade de simulação.
+ * @param[in] gy Posição global de y na grade de simulação.
+ * @return Um valor de 0 a 4, selecionando um tipo à partir do enum.
+ */
 CellType f_type(int gx, int gy) {
     int v = (gx * 7 + gy * 13) % 5;
     return (CellType) v;
 }
 
+/**
+ * @brief Configura a acessibilidade de uma célula.
+ * 
+ * Áreas interditadas estão sempre inacessíveis, independente da estação.
+ * Caso seja estação de seca, áreas de pesca estão inacessíveis.
+ * 
+ * @param[in] type Tipo de célula.
+ * @param[in] s A estação corrente.
+ * @return Valor 0 ou 1, representando Falso ou Verdadeiro sobre a acessibilidade.
+ */
 int f_accessible(CellType type, Season s) {
     if (type == RESTRICTED) return 0;
     if (type == FISHING && s == DRY) return 0;
     return 1;
 }
 
+/**
+ * @brief Realiza a inicialização do grid local.
+ * 
+ * A inicialização leva em consideração as fronteiras fantasmas que permitem a
+ * troca de agentes entre os subgrids. O tipo das células segue a
+ * equação definida em f_type e utiliza as coordenadas de posição global.
+ */
 void init_local_grid() {
     srand(42);
 
@@ -95,6 +156,13 @@ void init_local_grid() {
     }
 }
 
+/**
+ * @brief Inicializa os agentes nos subgrids.
+ * 
+ * Ao criar agentes, a função calcula coordenadas aleatórias conforme a semente
+ * e decide se as coordenadas calculadas correspondem ao subgrid do processo MPI atual.
+ * Não existem variáveis de entrada e saída pois são manipuladas variáveis de escopo global.
+ */
 void init_local_agents() {
     // inicialização do número de agentes do processo atual
     local_agents_count = 0;
