@@ -22,30 +22,43 @@
 #include <mpi.h>
 #include <omp.h>
 
-#define W 64
-#define H 64
-#define T 40
-#define S 10
-#define N_AGENTS 200
-#define MAX_COST 100
-#define REGEN_DRY 0.10f
-#define REGEN_WET 0.30f
-#define CONSUME_PER_AGENT 1.0f
-#define INITIAL_SEASON DRY
+#define W 64                            /**< Largura do grid global. */
+#define H 64                            /**< Altura do grid global. */
+#define T 40                            /**< Número total de ciclos da simulação. */
+#define S 10                            /**< Duração em ciclos das estações. */
+#define N_AGENTS 200                    /**< Número total de agentes da simulação. */
+#define MAX_COST 100                    /**< Custo máximo para rodar a função de computação sintética. */
+#define REGEN_DRY 0.10f                 /**< Taxa de regeneração durante a estação de seca. */
+#define REGEN_WET 0.30f                 /**< Taxa de regeneração durante a estação de cheia. */
+#define CONSUME_PER_AGENT 1.0f          /**< Taxa de consumo de recursos por agente. */
+#define INITIAL_SEASON DRY              /**< Configuração da estação inicial da simulação. */
 
+/**
+ * @brief Define as estações suportadas pela simulação.
+ */
 typedef enum { DRY = 0, WET = 1 } Season;
+
+/**
+ * @brief Define o tipo de célula da grade da simulação.
+ */
 typedef enum { VILLAGE = 0, FISHING, GATHERING, FARMLAND, RESTRICTED } CellType;
 
+/**
+ * @brief Estrutura de dados para cada célula da grade.
+ */
 typedef struct {
-    CellType type;
-    float resource;
-    int accessible;
-    float accumulated_consumption;
+    CellType type;                      /**< Tipo de célula estipulado por enum. */
+    float resource;                     /**< Quantidade de recurso disponível na célula de acordo com seu tipo, consumo e regeneração. */
+    int accessible;                     /**< Indicador de território acessível para agentes. */
+    float accumulated_consumption;      /**< Consumo acumulado dos agentes que habitam a célula. */
 } Cell;
 
+/**
+ * @brief Estrutura de dados que define o agente que explora o território.
+ */
 typedef struct {
-    int x, y;
-    float energy;
+    int x, y;           /**< Coordenadas da posição do agente no subgrid. */
+    float energy;       /**< Energia, ou vida, do agente. */
 } Agent;
 
 
@@ -53,9 +66,9 @@ typedef struct {
  *  VARIÁVEIS GLOBAIS DO MPI
  ***********************************************/
 
-int rank;        /**< Identificador do processo atual do MPI. */
+int rank;       /**< Identificador do processo atual do MPI. */
 int size;       /**< Número total de processos MPI rodando. */
-int local_H;    /**< Altura da fatia do subgrid local do processo MPI. */
+int local_H;    /**< Indicador do começo do subgrid local. */
 int offsetY;    /**< Deslocamento vertical global onde começa a atual fatia. */
 
 /** Matriz de alocação dinâmica da fatia do grid global.
@@ -66,7 +79,7 @@ Agent agents[N_AGENTS];         /**< Vetor de agentes do processo local. */
 int local_agents_count = 0;     /**< Número de agentes no processo local */
 Season current_season;          /**< Atual estação da simulação. */
 
-Agent out_up[N_AGENTS];   /**<  agentes indo para o vizinho de CIMA */
+Agent out_up[N_AGENTS];   /**< agentes indo para o vizinho de CIMA */
 int out_up_count = 0;     /**< número de agentes migrando para CIMA */
 
 Agent out_down[N_AGENTS]; /**< agentes indo para o vizinho de BAIXO */
